@@ -1,7 +1,7 @@
 # Plano de execução — F1: Fundação e Importação
-Versão 2.0 (revisada) | 14/10/2026 | Status: PROPOSTO PARA APROVAÇÃO — nenhum código escrito.
+Versão 3.0 (final para aprovação de codificação) | 14/10/2026 | Status: PROPOSTO PARA APROVAÇÃO — nenhum código escrito. Checklist GO/NO-GO em `docs/CHECKLIST_GO_NOGO_F1.md`.
 
-> Referências: `docs/AUDITORIA_VIABILIDADE_POV.md` v1.0, `docs/fase0/ARCHITECTURE.md`, `docs/fase0/DATA_CONTRACTS.md`, `docs/fase0/PRODUCT_REQUIREMENTS.md`, `docs/fase0/ACCEPTANCE_AND_ROADMAP.md`, `docs/fase0/CLAUDE_CODE_BOOTSTRAP.md`. Esta v2.0 incorpora 7 critérios adicionais exigidos pelo usuário em 14/10/2026, mantendo a arquitetura já aprovada conceitualmente (React + FastAPI + PostgreSQL, worker separado com fila persistida em tabela, dois adapters de importação, SPA mínima).
+> Referências: `docs/AUDITORIA_VIABILIDADE_POV.md` v1.0, `docs/fase0/ARCHITECTURE.md`, `docs/fase0/DATA_CONTRACTS.md`, `docs/fase0/PRODUCT_REQUIREMENTS.md`, `docs/fase0/ACCEPTANCE_AND_ROADMAP.md`, `docs/fase0/CLAUDE_CODE_BOOTSTRAP.md`. v2.0 incorporou 7 critérios adicionais. Esta v3.0 fecha os 4 parâmetros que ficaram abertos na v2.0 (seção 14 antiga) com os valores definidos pelo usuário em 14/10/2026, resolve os conflitos técnicos que essa definição gerou com a v2.0, e adiciona o checklist final de GO/NO-GO.
 
 ## 0. Decisões já fechadas, mantidas sem alteração
 - **Arquitetura do worker**: processo separado, fila persistida em tabela (não in-process, não broker externo) — aprovado na rodada anterior, resolvido agora de forma mais detalhada na seção 7.
@@ -9,6 +9,15 @@ Versão 2.0 (revisada) | 14/10/2026 | Status: PROPOSTO PARA APROVAÇÃO — nenh
 - **Sem IA em F1**: nenhuma chamada à Claude API, nenhuma infraestrutura de consentimento/teto de custo construída nesta fase — isso é F4.
 - **SPA mínima**: 4 áreas de navegação, só Data Hub funcional em F1; Cockpit, Cost Analytics, Investigação/Relatórios em "Em desenvolvimento".
 - **Escopo de F1**: upload → identificação → pré-validação → staging → commit idempotente → dataset consultável. Nenhuma agregação, nenhum KPI, nenhuma reconciliação (isso é F2).
+
+## 0-bis. Conflitos técnicos entre a v2.0 e os parâmetros definidos agora
+Dois pontos da v2.0 precisaram ser revertidos ou reformulados — registro aqui, não escondido dentro das seções, porque são mudanças de comportamento, não só de número:
+
+**Conflito A — limiar de 5% de rejeição (revertido)**. A v2.0 propunha: "rejeitar o commit inteiro se >5% das linhas forem inválidas, permitir commit com quarentena abaixo disso". A decisão 3 do usuário rejeita explicitamente essa ideia ("não aceitar uma taxa fixa de 5% como autorização automática") e proíbe commit parcial automático. **Resolução**: removido qualquer limiar percentual. Novo comportamento (seção 7 revisada): qualquer linha de severidade `error` bloqueia o commit do `import_batch` inteiro — all-or-nothing. Severidade `warning` não bloqueia. F1 **não implementa** um fluxo de aprovação humana para commit parcial (construir e testar essa aprovação com segurança é escopo novo, não coberto por nenhum documento da Fase 0) — isso cai na cláusula de segurança que o próprio usuário definiu: *"se não houver suporte seguro a essa aprovação na F1, bloquear o commit até correção ou nova importação válida"*. Decisão explícita: **não construir** o fluxo de aprovação em F1; todo `import_batch` com qualquer linha `error` fica em `rejected`, ponto final, até reimportação corrigida.
+
+**Conflito B — escopo da medição de performance (ajustado, não revertido)**. A v2.0 propunha medir "upload→commit completo". A decisão 1 do usuário exclui explicitamente "transferência de upload, inicialização e renderização" da medição. **Resolução**: o cronômetro começa quando o arquivo já staged é entregue ao pipeline de validação/normalização/persistência (pula transporte de rede e boot de processo) e termina no commit efetivado — ver seção 13.
+
+Nenhum outro parâmetro definido pelo usuário conflita com a v2.0; os demais (heartbeat 5s, timeout 30s, 3 tentativas, 200MB) já eram exatamente os valores propostos — confirmados sem mudança de desenho.
 
 ## 1. Rastreamento: o que já estava nos documentos originais vs. o que é proposta nova desta revisão
 O usuário pediu esta distinção explicitamente. Nenhum documento de `docs/fase0/` foi alterado — as células "Novo" abaixo são propostas minhas para preencher lacunas reais, sujeitas à sua aprovação.
@@ -71,6 +80,10 @@ Tabelas **novas**, propostas para preencher as lacunas da seção 1:
 
 Campo **novo** em `dataset`: `granularity` (`daily|monthly|mixed|unknown`), calculado a partir da distribuição de `billing_start`/`billing_end` das linhas do dataset no momento do commit (seção 6).
 
+Duas tabelas adicionais, propostas nesta v3.0 para atender às decisões de posse/lease e de quarentena estruturada (seções 7 e 7-bis):
+- `scope_lock(scope_key, held_by_job_id, acquired_at, expires_at)` — lease exclusivo por `provider+scope+period`, distinto do controle de tentativas do próprio `import_job`: impede que dois jobs de **batches diferentes** tentem commitar o mesmo escopo+período ao mesmo tempo (cenário de concorrência da seção 12), enquanto `import_job.attempt_count`/`heartbeat_at` controlam retomada do **mesmo** job.
+- `import_row_rejection(id, import_batch_id, row_offset, raw_excerpt_ref, severity, reason_code, field, created_at)` — substitui o campo genérico `errors` (JSON) de `import_batch` por um registro estruturado, consultável por severidade/campo/motivo; nunca contém o valor financeiro bruto da linha, só a referência (`raw_excerpt_ref`) para o arquivo original armazenado (ver seção 8, redação de logs).
+
 ## 4. Deduplicação de arquivo vs. sobreposição financeira (critério 1 — separação explícita)
 Dois mecanismos independentes, nunca fundidos no código nem na UI:
 
@@ -93,22 +106,34 @@ A UI de commit mostra esses dois casos com linguagem e ação diferentes — nun
 - `granularity` (novo campo, seção 3) é calculado e persistido no commit — F2 fica proibido de comparar/somar datasets com granularidades diferentes sem tratamento explícito de conversão, porque a informação já está disponível para essa checagem, não precisa ser redescoberta.
 - F1 **não agrega nada** — esta seção garante que os dados cheguem a F2 com metadados suficientes para que a agregação indevida seja tecnicamente difícil de acontecer por acidente, não que F1 já previna isso em tempo de agregação (que não existe ainda).
 
-## 7. Transacionalidade, idempotência, recuperação de falha, estados de job (critério 4)
+## 7. Transacionalidade, idempotência, recuperação de falha, estados de job (critério 4 — parâmetros finais)
 - **Commit transacional**: toda a gravação de `cost_usage` de um `import_batch` ocorre em uma única transação de banco; falha parcial faz rollback completo — nunca um dataset com metade das linhas.
 - **Idempotência**: já descrita na seção 4(a) — commit por hash nunca duplica.
 - **Estados de job** (`import_job.state`): `queued → running → succeeded|failed`. Transições são persistidas, não só em memória — se a API reiniciar, `GET /imports/{id}` continua respondendo corretamente a partir do banco.
-- **Recuperação de falha (novo, lacuna real dos documentos originais)**:
-  - Worker grava `heartbeat_at` periodicamente enquanto processa.
-  - `reaper.py` roda a cada N segundos: qualquer job em `running` com `heartbeat_at` mais antigo que um limite configurável é marcado `orphaned_requeued`, reposto na fila como `queued` com `attempt_count+1`, até um máximo de tentativas (depois disso, `failed` com erro explícito, nunca uma retentativa infinita silenciosa).
-  - `checkpoint_row_offset` permite a um job retomado continuar a validação de onde parou em arquivos grandes, em vez de reprocessar do zero — relevante para o teste de performance de 100k linhas (decisão de performance ainda pendente de confirmação, seção 11).
-  - Falha de conexão com o banco durante commit: a transação não efetivada não deixa rastro; o job volta para `queued` e tenta de novo.
+- **Classificação de falha — transitória vs. permanente (novo, exigido pelo usuário: "erros permanentes não devem gerar tentativas automáticas")**: toda falha capturada pelo worker é classificada antes de decidir o próximo estado.
+  - **Transitória** (conexão de banco perdida, timeout de I/O, worker morto/heartbeat expirado): elegível a retry automático via reaper, até o limite de tentativas.
+  - **Permanente** (arquivo estruturalmente inválido, schema não reconhecido por nenhum adapter, violação de regra financeira crítica — seção 7-bis): vai direto para `failed`, **sem** passar pelo reaper, sem consumir tentativa — reprocessar só acontece via reimportação corrigida ou reprocessamento manual (abaixo), nunca automaticamente.
+- **Heartbeat e timeout de órfão (parâmetros confirmados pelo usuário)**: heartbeat a cada 5s; job em `running` sem heartbeat por 30s é considerado suspeito de órfão.
+- **Tentativas (parâmetro confirmado)**: máximo de 3 tentativas totais, **incluindo a primeira execução** (ou seja, no máximo 2 retries automáticos após a tentativa inicial) — só para falhas classificadas como transitórias. Esgotadas as 3, `failed` definitivo.
+- **Lease/posse (novo, exigido pelo usuário: "controle de posse/lease para evitar commits concorrentes")**: antes de iniciar o commit, o worker adquire `scope_lock` para o `provider+scope+period` do dataset (tabela da seção 3). Um segundo job para o mesmo escopo+período, de qualquer `import_batch`, falha a aquisição do lock e aguarda ou retorna erro claro — nunca corre em paralelo. O lock tem `expires_at` para não travar permanentemente se o detentor morrer (liberado pelo próprio reaper ao detectar o job órfão).
+- **`checkpoint_row_offset`**: permite a um job retomado (caso transitório) continuar a validação de onde parou em arquivos grandes, sem reprocessar do zero — relevante para a meta de performance (seção 13).
+- **Reprocessamento manual controlado (novo, exigido pelo usuário)**: endpoint `POST /api/v1/imports/{id}/retry`, distinto do requeue automático do reaper — só aplicável a jobs em `failed`, exige confirmação explícita (não é botão de "tentar de novo" automático na UI), e cada chamada é registrada com quem/quando acionou.
 
-## 8. Segurança local (critério 5)
+## 7-bis. Taxonomia de severidade e bloqueio de commit (critério "rejeição e quarentena" — substitui o limiar de 5% da v2.0)
+Três níveis, aplicados por `import_row_rejection` (seção 3):
+- **`info`**: desvio cosmético (ex.: espaço extra em campo texto) — não aparece como erro, só em log de auditoria.
+- **`warning`**: campo opcional ausente, valor fora do range usual mas não financeiramente crítico — **não bloqueia commit**, aparece no relatório de qualidade do dataset.
+- **`error`** (inclui toda "inconsistência financeira crítica"): moeda inválida/ausente, valor de custo não parseável como `Decimal`, campo obrigatório ausente (`billing_start`, `currency`, `billed_cost`), violação de unicidade de linha, granularidade inconsistente dentro do mesmo dataset sem rótulo — **qualquer linha `error` quarentena a linha e bloqueia o commit do `import_batch` inteiro**. Não existe commit parcial automático em F1. O `import_batch` fica em `rejected` com o relatório de `import_row_rejection` completo, disponível para correção e reimportação — nunca altera a base já committed (AT-002).
+- Não há fluxo de aprovação humana para liberar commit parcial nesta fase (ver Conflito A, seção 0-bis) — essa é uma decisão de produto explícita, não uma lacuna técnica, e deve ser revisitada em F2/F3 se a taxa de rejeição real se mostrar um problema operacional.
+
+## 8. Segurança local (critério 5 — parâmetros finais)
 - **Rede**: API faz bind em `127.0.0.1` por padrão (não `0.0.0.0`); CORS explícito só para a origem do Vite dev server; nenhuma configuração de produção exposta nesta fase — já previsto em `AGENTS_SECURITY.md`, confirmado como requisito de F1.
-- **Limite de upload**: tamanho máximo configurável (ex.: 200MB por arquivo na PoV, valor a confirmar), rejeitado antes de gravar em disco (streaming com corte, não leitura completa em memória primeiro).
-- **Validação de formato**: extensão declarada **mais** verificação de magic bytes/MIME real do conteúdo (não confiar só na extensão) — um `.csv` que na verdade é um executável é rejeitado na validação, não só "tratado como CSV e falha depois".
-- **Proteção contra manipulação de caminho (novo, lacuna real)**: `original_filename` do usuário é armazenado só como metadado de exibição — **nunca** usado para compor um caminho de arquivo no disco. Todo path de gravação é construído a partir de IDs internos gerados pelo sistema (`import_batch.id`, `sha256`), passando por `path_safety.py`, que resolve o caminho final e verifica que ele está contido dentro do diretório base permitido antes de qualquer `open()`/`write()`. Isso neutraliza tentativas de nome de arquivo como `../../etc/passwd` ou caminhos absolutos disfarçados de nome de arquivo.
-- **Sanitização de CSV** (já no plano anterior): payloads de fórmula (`=`, `+`, `-`, `@`) neutralizados em qualquer exportação/preview.
+- **Limite de upload (parâmetro confirmado)**: 200MB por arquivo, rejeitado antes de gravar em disco (streaming com corte, não leitura completa em memória primeiro — requisito do usuário, "processamento em streaming").
+- **Limites de descompactação e memória (novo, exigido pelo usuário)**: se o adapter aceitar entrada comprimida (ex.: `.csv.gz`, Parquet já é comprimido internamente pela própria biblioteca), aplicar limite de tamanho descomprimido (ex.: 10x o tamanho comprimido ou um teto absoluto, o que for menor) e abortar o stream se o limite for excedido — proteção contra zip bomb. Memória de processamento usa leitura em chunks (streaming), nunca carrega o arquivo inteiro nem seu conteúdo descomprimido de uma vez.
+- **Validação de formato**: extensão declarada **mais** verificação de magic bytes/MIME real do conteúdo (não confiar só na extensão) — um `.csv` que na verdade é um executável é rejeitado na validação, não só "tratado como CSV e falha depois". Lista de extensões permitidas fechada (`.csv`, `.parquet`, `.csv.gz`), qualquer outra rejeitada antes de qualquer parsing.
+- **Proteção contra manipulação de caminho**: `original_filename` do usuário é armazenado só como metadado de exibição — **nunca** usado para compor um caminho de arquivo no disco. Todo path de gravação é construído a partir de IDs internos gerados pelo sistema (`import_batch.id`, `sha256`), passando por `path_safety.py`, que resolve o caminho final e verifica que ele está contido dentro do diretório base permitido antes de qualquer `open()`/`write()`.
+- **Redação de logs (novo, exigido pelo usuário: "não registrar dados financeiros sensíveis em logs")**: logs estruturados do pipeline de ingestão contêm apenas IDs, hashes, contagens, códigos de severidade/motivo e timestamps — nunca o valor de `billed_cost`/`effective_cost`/`list_cost`/`contracted_cost`, nem o conteúdo bruto de uma linha rejeitada. `import_row_rejection.raw_excerpt_ref` aponta para o arquivo original armazenado (acessível só via API autenticada do dataset, não via log), nunca duplica o valor no próprio log.
+- **Sanitização de CSV**: payloads de fórmula (`=`, `+`, `-`, `@`) neutralizados em qualquer exportação/preview.
 
 ## 9. Independência arquitetural do Azure (critério 6 — já coberto, mantido)
 `ProviderAdapter` com `identify/validate/map_financial/map_inventory/map_metrics/capabilities()`, conforme `ARCHITECTURE.md`. F1 implementa dois adapters concretos (FOCUS 1.0r2, Azure Cost Analysis), ambos atrás da mesma interface; nenhuma lógica de domínio (`ingestion`, `canonical_financial`) referencia "Azure" diretamente — só os adapters conhecem o provider. Isso é o que permite, no futuro, um adapter ler de um ambiente que já rode FinOps Hubs como fonte alternativa, sem acoplamento.
@@ -128,35 +153,55 @@ Mantidas da v1.0 (`focus_clean_baseline`, `focus_malformed`, `focus_overlap_reim
 | Unit | `dedup.py` e `overlap.py` testados **separadamente**, nunca no mesmo teste (reforça a separação do critério 1); cálculo de `granularity`; `path_safety.py` rejeita todo payload de traversal da fixture dedicada; validação de magic bytes vs. extensão divergente |
 | Integração | fluxo completo incluindo `import_field_mapping` persistido e consultável após commit; `dataset_overlap_flag` criado e bloqueando commit até resolução explícita; reaper requeue de job órfão simulado (matar o worker no meio do processamento e verificar recuperação) |
 | Falha (`tests/failure`, novo) | ver seção 12 — cada cenário de falha tem um teste correspondente, não é só documentação |
-| Performance | inalterado da v1.0, pendente de confirmação de metodologia (seção 13) |
+| Performance | 5 medições por adapter, P95 + telemetria, conforme metodologia final da seção 13 |
 | Segurança | inalterado + path traversal explícito |
 | E2E | inalterado + fluxo de resolução de `dataset_overlap_flag` na UI |
 
-## 12. Cenários de falha (novo, pedido explicitamente)
+## 12. Cenários de falha (atualizado com os parâmetros finais)
 | Cenário | Comportamento esperado |
 |---|---|
-| Worker morre no meio do parsing de um arquivo grande | Job fica `running` com heartbeat parado; reaper detecta, requeue com checkpoint; retomada não duplica linhas já processadas |
+| Worker morre no meio do parsing de um arquivo grande | Falha classificada como transitória; job fica `running` com heartbeat parado; reaper detecta após 30s, requeue com checkpoint (attempt 2 de 3); retomada não duplica linhas já processadas |
+| Worker esgota as 3 tentativas por falhas transitórias repetidas | Job vai para `failed` definitivo; reprocessamento só via `POST /imports/{id}/retry` manual, nunca automático de novo |
 | Upload do mesmo arquivo duas vezes em paralelo (dois cliques) | Segundo request detecta hash em processamento (ou já committed) e retorna o `import_batch` existente, não cria um segundo job concorrente |
-| Conexão com Postgres cai durante commit | Transação não efetivada; job volta para `queued`; novo attempt não deixa estado parcial |
+| Conexão com Postgres cai durante commit | Falha transitória; transação não efetivada; job volta para `queued`; novo attempt não deixa estado parcial |
 | Disco cheio durante staging | Upload falha de forma explícita (`failed`, `error_detail` claro); nenhum arquivo parcial é tratado como válido; espaço já gravado é limpo |
-| Nome de arquivo malicioso (path traversal) | Rejeitado em `path_safety.py` antes de qualquer gravação; registrado como tentativa de severidade `error` na resposta, sem detalhe interno de path exposto ao cliente |
-| Arquivo corrompido no meio do stream (CSV trunca a meio de uma linha) | Linha incompleta é rejeitada com severidade `error` e offset exato; linhas anteriores válidas não são descartadas só porque o arquivo terminou mal — mas o commit inteiro só ocorre se a taxa de rejeição estiver dentro de um limiar aceitável (a definir) |
-| Dois commits concorrentes para o mesmo `scope+period` | Lock otimista por `scope_key`; o segundo commit detecta o primeiro já em andamento e aguarda ou falha com mensagem clara, nunca corrida de gravação simultânea |
+| Nome de arquivo malicioso (path traversal) | Rejeitado em `path_safety.py` antes de qualquer gravação; falha permanente, sem retry; severidade `error`, sem detalhe interno de path exposto ao cliente |
+| Arquivo comprimido que expande muito além do limite (zip bomb) | Stream abortado ao exceder o limite de descompactação (seção 8); falha permanente, sem retry; nenhum dado é persistido |
+| Arquivo corrompido no meio do stream (CSV trunca a meio de uma linha) | Linha incompleta registrada em `import_row_rejection` com severidade `error` e offset exato; **commit do batch inteiro bloqueado** (sem limiar percentual — ver seção 7-bis); falha permanente (erro de dado, não de infraestrutura), sem retry automático; correção exige reimportação |
+| Esquema financeiro crítico inválido (ex.: moeda ausente, custo não parseável) em qualquer linha | Mesmo tratamento do cenário anterior — `error` bloqueia o commit inteiro, falha permanente |
+| Dois commits concorrentes para o mesmo `scope+period` (`import_batch` diferentes) | `scope_lock` (seção 7) impede aquisição simultânea; o segundo commit aguarda ou falha com mensagem clara, nunca corrida de gravação simultânea |
 
-## 13. Critérios de aceite objetivos (consolidados desta revisão)
-Mantidos da v1.0 (AT-001 a AT-004 parciais, performance, 0 achados críticos de segurança, nenhuma tela com número agregado), mais:
+## 13. Metodologia de performance (parâmetro final, decisão 1 do usuário)
+- **Meta**: validar, normalizar e persistir 100.000 linhas em até 60s.
+- **Escopo medido**: começa com o arquivo já staged (pós-upload); inclui parsing+validação+normalização+commit transacional; **exclui** transferência de upload pela rede, inicialização de processo/conexão e qualquer renderização de UI.
+- **Protocolo**: 5 medições por adapter (FOCUS 1.0r2 e Azure Cost Analysis), após 1 execução de aquecimento descartada. Reportar P95 das 5 medições, não a melhor nem a média.
+- **Telemetria registrada por medição**: CPU, RAM, I/O de disco, sistema operacional e versões (Python, Postgres, bibliotecas de parsing) — para que o número não vire um dado sem contexto reprodutível.
+- **Validação pós-medição, não só tempo**: cada uma das 5 execuções verifica integridade (contagem de linhas igual ao fixture), idempotência (reimportar a mesma massa não duplica) e corretude dos `import_row_rejection` esperados (o fixture de performance é limpo, então o esperado é zero rejeições).
+- **Máquina de referência**: a ser executada e registrada no próprio ambiente de CI/dev onde os testes rodarem (container atual: especificações a capturar automaticamente no relatório de teste, não fixadas a priori em hardware específico) — isso resolve a lacuna "a definir" do `PRODUCT_REQUIREMENTS.md` de forma reprodutível em vez de prometer um número de hardware que pode não corresponder ao ambiente real de execução.
+
+## 14. Critérios de aceite objetivos (consolidados)
+Mantidos da v1.0/v2.0 (AT-001 a AT-004 parciais, 0 achados críticos de segurança, nenhuma tela com número agregado), mais:
 - 100% dos cenários da seção 12 cobertos por teste automatizado e com comportamento conforme a tabela — nenhum é "documentado mas não testado".
-- Deduplicação por hash e detecção de sobreposição financeira nunca compartilham código nem mensagem de usuário — auditável lendo o diff do PR (critério de revisão de código, não só de teste).
-- 100% das linhas malformadas de `malicious_filename_traversal` e `focus_mixed_granularity` tratadas conforme especificado nesta seção.
+- Deduplicação por hash e detecção de sobreposição financeira nunca compartilham código nem mensagem de usuário — auditável lendo o diff do PR.
+- Nenhuma linha de severidade `error` resulta em commit parcial em nenhum teste — verificação explícita de que o limiar de 5% não existe mais em código nem em teste.
+- Toda falha classificada como permanente nos testes de `tests/failure` não consome tentativa de retry nem aciona o reaper.
+- `scope_lock` impede, em teste de concorrência real (duas requisições simultâneas), que dois commits do mesmo `scope+period` sejam efetivados.
+- Nenhum log gerado durante os testes de integração/falha contém valor de campo financeiro (`billed_cost` etc.) em texto plano — verificado por scanner de log dedicado.
+- Performance: as 5 medições por adapter executadas, P95 registrado com a telemetria completa da seção 13 — mesmo que a meta de 60s não seja batida na primeira rodada, o número real é reportado, não arredondado para "passou".
 - `import_field_mapping` consultável via API para qualquer `import_batch_id` committed, com histórico completo de edições manuais.
 
-## 14. Pontos abertos para confirmação antes de codificar
-Carregado da v1.0 (ainda não resolvido):
-1. **Metodologia de performance** (decisão 3 da auditoria): máquina de referência (proponho 2 vCPU/4GB), formato (medir CSV e Parquet separadamente), e escopo da medição (upload→commit completo, proposta mantida).
+## 15. Resumo dos parâmetros finais (para referência rápida)
+| Parâmetro | Valor |
+|---|---|
+| Heartbeat do worker | 5s |
+| Timeout de suspeita de órfão | 30s |
+| Máximo de tentativas (incluindo a primeira) | 3, só para falhas transitórias |
+| Falha permanente | vai direto a `failed`, sem consumir tentativa, sem reaper |
+| Limite de upload | 200MB por arquivo |
+| Limite de descompactação | proporcional ao comprimido (ex.: 10x) ou teto absoluto, o menor dos dois |
+| Commit parcial automático | **não existe** em F1 — qualquer `error` bloqueia o batch inteiro |
+| Fluxo de aprovação para commit parcial | **não construído** em F1 (cláusula de segurança do usuário aplicada) |
+| Meta de performance | 100k linhas em ≤60s, P95 de 5 medições, excluindo upload/init/render |
+| Extensões aceitas | `.csv`, `.parquet`, `.csv.gz` |
 
-Novo desta revisão:
-2. **Limite máximo de tentativas do reaper** antes de marcar um job `failed` definitivamente (proponho 3) — e **intervalo de heartbeat/timeout de órfão** (proponho heartbeat a cada 5s, timeout de órfão em 30s) — números de partida, ajustáveis.
-3. **Limiar de taxa de rejeição** que ainda permite commit parcial de um arquivo com algumas linhas malformadas vs. rejeitar o arquivo inteiro (cenário de "arquivo corrompido no meio do stream", seção 12) — proponho: rejeitar o commit inteiro se >5% das linhas forem inválidas, permitir commit com quarentena das linhas inválidas abaixo disso; é uma escolha de produto, não só técnica.
-4. **Tamanho máximo de upload** (proponho 200MB para a PoV) — confirmar se é suficiente para os casos de uso reais que você tem em mente.
-
-Com esses 4 pontos confirmados, a próxima entrega é código: árvore materializada, migrations Alembic (incluindo as 3 tabelas novas), contratos OpenAPI, SPA Data Hub funcional, fixtures geradas, e os testes das seções 10–12.
+Todos os pontos abertos da v2.0 estão resolvidos. Não há parâmetro pendente de confirmação nesta versão.
