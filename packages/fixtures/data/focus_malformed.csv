@@ -1,0 +1,7 @@
+BillingAccountId,SubAccountId,ServiceName,ResourceId,RegionId,ChargeCategory,BillingPeriodStart,BillingPeriodEnd,ChargePeriodStart,ChargePeriodEnd,PricingQuantity,PricingUnit,BillingCurrency,BilledCost,EffectiveCost,ListCost,ContractedCost
+demo-sub-0001,demo-rg-finops,VirtualMachines,demo-vm-001,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-01T00:00:00Z,24,Hours,BRL,120.500000,110.000000,140.000000,115.000000
+,demo-rg-finops,VirtualMachines,demo-vm-001,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-01T00:00:00Z,24,Hours,BRL,120.500000,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,VirtualMachines,demo-vm-001,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-01T00:00:00Z,24,Hours,BRL,not_a_number,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,VirtualMachines,demo-vm-001,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-01T00:00:00Z,24,Hours,US,120.500000,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,VirtualMachines,demo-vm-001,brazilsouth,Weird,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-01T00:00:00Z,24,Hours,BRL,120.500000,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,VirtualMachines,demo-vm-001,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-01T00:00:00Z,24,Hours,BRL,120.500000,110.000000,140.000000,115.000000

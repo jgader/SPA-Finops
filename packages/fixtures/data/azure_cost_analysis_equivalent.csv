@@ -1,0 +1,9 @@
+SubscriptionId,ResourceGroup,ServiceName,InstanceId,ResourceLocation,BillingMonth,Quantity,UnitOfMeasure,Cost,Currency,ChargeType
+demo-sub-0002,demo-rg-finops,VirtualMachines,demo-res-000,brazilsouth,2026-08,720,Hours,300.000000,BRL,Usage
+demo-sub-0002,demo-rg-finops,Storage,demo-res-001,brazilsouth,2026-08,720,Hours,310.000000,BRL,Usage
+demo-sub-0002,demo-rg-finops,Networking,demo-res-002,brazilsouth,2026-08,720,Hours,320.000000,BRL,Usage
+demo-sub-0002,demo-rg-finops,DatabaseServices,demo-res-003,brazilsouth,2026-08,720,Hours,330.000000,BRL,Usage
+demo-sub-0002,demo-rg-finops,Monitoring,demo-res-004,brazilsouth,2026-08,720,Hours,340.000000,BRL,Usage
+demo-sub-0002,demo-rg-finops,LoadBalancer,demo-res-005,brazilsouth,2026-08,720,Hours,350.000000,BRL,Usage
+demo-sub-0002,demo-rg-finops,KeyVault,demo-res-006,brazilsouth,2026-08,720,Hours,360.000000,BRL,Usage
+demo-sub-0002,demo-rg-finops,AppService,demo-res-007,brazilsouth,2026-08,720,Hours,370.000000,BRL,Usage

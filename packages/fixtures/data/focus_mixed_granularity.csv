@@ -1,0 +1,9 @@
+BillingAccountId,SubAccountId,ServiceName,ResourceId,RegionId,ChargeCategory,BillingPeriodStart,BillingPeriodEnd,ChargePeriodStart,ChargePeriodEnd,PricingQuantity,PricingUnit,BillingCurrency,BilledCost,EffectiveCost,ListCost,ContractedCost
+demo-sub-0001,demo-rg-finops,VirtualMachines,demo-daily-000,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-02T00:00:00Z,24,Hours,BRL,20.000000,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,Storage,demo-daily-001,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-02T00:00:00Z,24,Hours,BRL,21.000000,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,Networking,demo-daily-002,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-02T00:00:00Z,24,Hours,BRL,22.000000,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,DatabaseServices,demo-daily-003,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-02T00:00:00Z,24,Hours,BRL,23.000000,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,Monitoring,demo-monthly-000,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,24,Hours,BRL,30.000000,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,LoadBalancer,demo-monthly-001,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,24,Hours,BRL,31.000000,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,KeyVault,demo-monthly-002,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,24,Hours,BRL,32.000000,110.000000,140.000000,115.000000
+demo-sub-0001,demo-rg-finops,AppService,demo-monthly-003,brazilsouth,Usage,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,2026-08-01T00:00:00Z,2026-08-31T23:59:59Z,24,Hours,BRL,33.000000,110.000000,140.000000,115.000000

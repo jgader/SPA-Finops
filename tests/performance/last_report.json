@@ -1,0 +1,25 @@
+{
+  "target_seconds": 60,
+  "expected_rows": 100000,
+  "runs": 5,
+  "warmup_runs": 1,
+  "measurements_seconds": [
+    10.554810696000004,
+    10.78392862299961,
+    10.791025782999895,
+    10.94923787200014,
+    11.135932580000372
+  ],
+  "p95_seconds": 11.135932580000372,
+  "mean_seconds": 10.842987110800005,
+  "measurement_scope": "staging (parse+validacao) + commit transacional; exclui upload, inicializacao de processo e renderizacao",
+  "telemetry": {
+    "os": "Linux-6.18.44-fc-v114-x86_64-with-glibc2.39",
+    "python_version": "3.13.16 (main, Oct  1 2026, 15:40:24) [GCC 13.3.0]",
+    "cpu_count": 4,
+    "max_rss_kb": 526864,
+    "user_cpu_seconds": 45.834587,
+    "system_cpu_seconds": 4.087907
+  },
+  "passed_target": true
+}
